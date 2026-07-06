@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Translation Filter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Silkscreen&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #04060b;
+    --grid: rgba(90, 220, 255, 0.05);
+    --panel: rgba(10, 16, 26, 0.92);
+    --panel-2: #0d1522;
+    --line: #14324a;
+    --glow: #5adcff;
+    --glow-soft: rgba(90, 220, 255, 0.35);
+    --glow-faint: rgba(90, 220, 255, 0.12);
+    --text: #d8f2fc;
+    --muted: #5f8ba3;
+    --accent: #5adcff;
+    --warn: #ff9f45;
+    --err: #ff6a3d;
+    --screen-bg: #000;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+      radial-gradient(ellipse at 50% -20%, #0a1a2e 0%, var(--bg) 60%);
+    background-size: 40px 40px, 40px 40px, 100% 100%;
+    color: var(--text);
+    font-family: "DotGothic16", "Zen Kaku Gothic New", sans-serif;
+    min-height: 100vh;
+    padding: 24px 20px;
+  }
+  header.app { max-width: 1500px; margin: 0 auto 18px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  h1 {
+    font-family: "Silkscreen", "DotGothic16", sans-serif;
+    font-weight: 400;
+    font-size: 22px;
+    letter-spacing: .18em;
+    color: var(--glow);
+    text-shadow: 0 0 8px var(--glow-soft), 0 0 24px var(--glow-faint);
+  }
+  .sub { color: var(--muted); font-size: 13px; letter-spacing: .06em; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(220px, 1fr);
+    gap: 16px; max-width: 1500px; margin: 0 auto;
+  }
+  @media (max-width: 950px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 16px;
+    box-shadow: 0 0 12px rgba(90, 220, 255, 0.06), inset 0 0 24px rgba(90, 220, 255, 0.03);
+  }
+  .panel h2 {
+    font-family: "Silkscreen", "DotGothic16", sans-serif;
+    font-size: 13px; font-weight: 400; letter-spacing: .28em;
+    color: var(--glow); margin-bottom: 12px;
+    text-shadow: 0 0 6px var(--glow-faint);
+  }
+
+  /* screen area: video and overlay-snapshot stacked */
+  .screen-wrap {
+    position: relative; background: var(--screen-bg);
+    border: 1px solid var(--glow-soft);
+    box-shadow: 0 0 10px var(--glow-faint), inset 0 0 8px rgba(90, 220, 255, 0.05);
+    border-radius: 3px; overflow: hidden;
+    aspect-ratio: 16 / 9;
+    display: flex; align-items: center; justify-content: center;
+  }
+  video, #snapImg { width: 100%; height: 100%; object-fit: contain; }
+  video { display: none; }
+  #snapLayer { position: absolute; inset: 0; display: none; }
+  #snapImg { position: absolute; inset: 0; }
+  #overlayBoxes { position: absolute; inset: 0; }
+  .obox {
+    position: absolute;
+    font-family: "Zen Kaku Gothic New", sans-serif;
+    background: rgba(2, 8, 14, 0.88);
+    color: #e8f8ff;
+    border-radius: 2px;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    line-height: 1.3;
+    padding: 1px 4px;
+    overflow: hidden;
+    outline: 1px solid rgba(90, 220, 255, 0.4);
+    word-break: break-word;
+  }
+  .placeholder {
+    color: var(--muted);
+    font-size: 13px; text-align: center; line-height: 2;
+    letter-spacing: .1em;
+  }
+  .live-badge {
+    position: absolute; top: 10px; left: 10px; z-index: 5;
+    font-size: 11px; letter-spacing: .1em;
+    padding: 3px 9px; border-radius: 2px; display: none;
+    background: rgba(2, 8, 14, 0.8);
+  }
+  .live-badge.live { color: var(--err); outline: 1px solid var(--err); box-shadow: 0 0 8px rgba(255, 106, 61, 0.3); }
+  .live-badge.frozen { color: var(--glow); outline: 1px solid var(--glow); box-shadow: 0 0 8px var(--glow-faint); }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+  button {
+    font-family: inherit; font-weight: 400; font-size: 14px;
+    padding: 8px 16px; border-radius: 2px;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--text); cursor: pointer;
+    letter-spacing: .04em;
+    transition: box-shadow .15s, border-color .15s;
+  }
+  button:hover { border-color: var(--glow-soft); box-shadow: 0 0 8px var(--glow-faint); }
+  button:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+  button.primary {
+    background: rgba(90, 220, 255, 0.1);
+    color: var(--glow); border-color: var(--glow);
+    box-shadow: 0 0 10px var(--glow-faint), inset 0 0 10px rgba(90, 220, 255, 0.06);
+    text-shadow: 0 0 6px var(--glow-faint);
+  }
+  button.primary:hover { box-shadow: 0 0 16px var(--glow-soft), inset 0 0 12px rgba(90, 220, 255, 0.1); }
+  select, input[type="password"] {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 2px; padding: 8px 10px; font-size: 13px; font-family: inherit;
+  }
+  input[type="password"]:focus, select:focus, button:focus-visible {
+    outline: 1px solid var(--glow); outline-offset: 1px;
+    box-shadow: 0 0 8px var(--glow-faint);
+  }
+  label.inline { font-size: 13px; color: var(--text); display: flex; align-items: center; gap: 6px; }
+  label.inline input[type="checkbox"] { accent-color: var(--accent); }
+
+  .status {
+    font-size: 12.5px; color: var(--muted); margin-top: 12px; min-height: 17px;
+    letter-spacing: .06em;
+  }
+  .status.busy { color: var(--warn); text-shadow: 0 0 8px rgba(255, 159, 69, 0.3); }
+  .status.error { color: var(--err); text-shadow: 0 0 8px rgba(255, 106, 61, 0.3); }
+
+  .feed { display: flex; flex-direction: column; gap: 10px; max-height: 68vh; overflow-y: auto; }
+  .feed::-webkit-scrollbar { width: 8px; }
+  .feed::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  .entry {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--glow);
+    border-radius: 3px; padding: 11px 13px;
+  }
+  .entry .time {
+    font-size: 11px; color: var(--muted); margin-bottom: 7px; letter-spacing: .1em;
+  }
+  .entry .ja { font-family: "Zen Kaku Gothic New", sans-serif; font-size: 14px; line-height: 1.75; white-space: pre-wrap; }
+  .entry .en {
+    font-family: "Zen Kaku Gothic New", sans-serif;
+    font-size: 12px; color: var(--muted); line-height: 1.55; white-space: pre-wrap;
+    margin-top: 5px; display: none;
+  }
+  .feed.show-en .entry .en { display: block; }
+  .empty-feed { color: var(--muted); font-size: 13px; padding: 24px 0; text-align: center; letter-spacing: .08em; }
+
+  .apikey-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .apikey-row input { flex: 1; min-width: 200px; }
+  .note { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.8; }
+
+
+  /* ---- (1) scan sweep ---- */
+  .scanline {
+    position: absolute; left: 0; right: 0; top: 0; height: 30%;
+    background: linear-gradient(to bottom,
+      transparent 0%,
+      rgba(90, 220, 255, 0.05) 55%,
+      rgba(90, 220, 255, 0.18) 92%,
+      rgba(120, 235, 255, 0.9) 100%);
+    display: none; pointer-events: none; z-index: 4;
+  }
+  .scanline.active { display: block; animation: scan 1.0s linear infinite; }
+  @keyframes scan {
+    /* element is 30% of container tall: -100% puts it fully above,
+       350% of own height puts its top past the container bottom */
+    from { transform: translateY(-100%); }
+    to   { transform: translateY(350%); }
+  }
+  .obox { opacity: 0; animation: oboxin .3s ease forwards; }
+  @keyframes oboxin {
+    from { opacity: 0; transform: translateY(3px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* ---- (3) boot sequence ---- */
+  header.app { animation: bootfade .6s ease both; }
+  .layout .panel { animation: bootwipe .55s ease both; }
+  .layout .panel:nth-child(1) { animation-delay: .15s; }
+  .layout .panel:nth-child(2) { animation-delay: .3s; }
+  @keyframes bootwipe {
+    from { clip-path: inset(0 100% 0 0); opacity: .4; }
+    to   { clip-path: inset(0 0 0 0); opacity: 1; }
+  }
+  @keyframes bootfade {
+    from { opacity: 0; letter-spacing: .3em; }
+    to   { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    button { transition: none; }
+    header.app, .layout .panel, .obox { animation: none; opacity: 1; clip-path: none; }
+    .scanline.active { animation: none; display: none; }
+  }
+</style>
+</head>
+<body>
+<header class="app">
+  <h1>Translation Filter</h1>
+</header>
+
+<div class="layout">
+  <!-- left -->
+  <div class="panel">
+    <h2>SCREEN</h2>
+    <div class="apikey-row">
+      <button id="btnSelect" class="primary">画面を選択</button>
+      <input type="password" id="apiKey" placeholder="Google Cloud APIキー (Vision + Translation 有効化済み)">
+      <button id="saveKey">保存</button>
+    </div>
+
+    <div class="screen-wrap">
+      <div class="placeholder" id="placeholder">画面が未選択です<br><span style="font-size:11px">「画面を選択」からゲームのウィンドウを選んでください</span></div>
+      <video id="video" autoplay muted playsinline></video>
+      <div id="snapLayer">
+        <img id="snapImg" alt="">
+        <div id="overlayBoxes"></div>
+      </div>
+      <div class="live-badge" id="badge"></div>
+      <div class="scanline" id="scanline"></div>
+    </div>
+
+    <div class="controls">
+      <button id="btnTranslate" disabled>翻訳</button>
+      <button id="btnLive" disabled style="display:none;">オーバーレイを消す</button>
+      <label class="inline">
+        <input type="checkbox" id="freezeMode">
+        翻訳時に画面を静止
+      </label>
+      <label class="inline">
+        <input type="checkbox" id="autoMode">
+        自動翻訳
+      </label>
+      <select id="autoInterval">
+        <option value="4000">4秒ごと</option>
+        <option value="8000" selected>8秒ごと</option>
+        <option value="15000">15秒ごと</option>
+      </select>
+      <label class="inline">
+        <input type="checkbox" id="groupPara" checked>
+        段落単位でまとめる
+      </label>
+    </div>
+    <div class="controls" style="margin-top:12px;">
+      <label class="inline">元の言語
+        <select id="srcLang">
+          <option value="auto" selected>自動検出</option>
+          <option value="en">英語</option>
+          <option value="zh">中国語(簡体)</option>
+          <option value="zh-TW">中国語(繁体)</option>
+          <option value="ko">韓国語</option>
+          <option value="fr">フランス語</option>
+          <option value="de">ドイツ語</option>
+          <option value="es">スペイン語</option>
+          <option value="ru">ロシア語</option>
+        </select>
+      </label>
+      <span style="color:var(--muted);">→</span>
+      <label class="inline">翻訳先
+        <select id="tgtLang">
+          <option value="ja" selected>日本語</option>
+          <option value="en">英語</option>
+          <option value="zh">中国語(簡体)</option>
+          <option value="ko">韓国語</option>
+        </select>
+      </label>
+    </div>
+    <div class="status" id="status">準備完了</div>
+    <div class="note">
+      ※ 「翻訳」でその瞬間の画面を翻訳し、映像の上に重ねて表示します。「翻訳時に画面を静止」をオンにすると、押した瞬間のフレームで止めてじっくり読めます。<br>
+      ※ 自動翻訳モードでは静止せず、ライブ映像の上に最新の翻訳を重ね続けます。<br>
+      ※ APIキーはlocalStorageにのみ保存。Google Cloud側でキーに「Cloud Vision API」「Cloud Translation API」の制限をかけておくと安全です。
+    </div>
+  </div>
+
+  <!-- right -->
+  <div class="panel">
+    <h2>TRANSLATION LOG</h2>
+    <div class="controls" style="margin:0 0 10px 0;">
+      <label class="inline"><input type="checkbox" id="showEn">原文も表示</label>
+      <button id="btnClear" style="margin-left:auto;">クリア</button>
+    </div>
+    <div class="feed" id="feed">
+      <div class="empty-feed" id="emptyFeed">まだ翻訳結果がありません</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const video = $('video');
+let stream = null;
+let autoTimer = null;
+let busy = false;
+let frozen = false;
+
+$('apiKey').value = localStorage.getItem('glt_api_key') || '';
+$('saveKey').onclick = () => {
+  localStorage.setItem('glt_api_key', $('apiKey').value.trim());
+  setStatus('APIキーを保存しました');
+};
+
+function setStatus(msg, cls = '') {
+  const s = $('status');
+  s.textContent = msg;
+  s.className = 'status ' + cls;
+}
+function setBadge(mode) {
+  const b = $('badge');
+  if (!mode) { b.style.display = 'none'; return; }
+  b.style.display = 'block';
+  b.className = 'live-badge ' + mode;
+  b.textContent = mode === 'live' ? '配信中' : '静止中';
+}
+
+// ---- screen capture ----
+$('btnSelect').onclick = async () => {
+  try {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: false });
+    video.srcObject = stream;
+    video.style.display = 'block';
+    $('placeholder').style.display = 'none';
+    $('btnTranslate').disabled = false;
+    backToLive();
+    setStatus('画面を取り込み中');
+    stream.getVideoTracks()[0].addEventListener('ended', () => {
+      video.style.display = 'none';
+      $('placeholder').style.display = 'block';
+      $('btnTranslate').disabled = true;
+      $('btnLive').style.display = 'none';
+      stopAuto(); $('autoMode').checked = false;
+      setBadge(null);
+      setStatus('画面共有が終了しました');
+    });
+  } catch (e) {
+    setStatus('画面の選択がキャンセルされました', 'error');
+  }
+};
+
+function captureFrame() {
+  const maxW = 1600;
+  const scale = Math.min(1, maxW / video.videoWidth);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  return { dataUrl: canvas.toDataURL('image/jpeg', 0.9), w: canvas.width, h: canvas.height };
+}
+
+// ---- Vision OCR ----
+async function ocr(key, base64) {
+  const res = await fetch('https://vision.googleapis.com/v1/images:annotate?key=' + encodeURIComponent(key), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requests: [{
+        image: { content: base64 },
+        features: [{ type: 'TEXT_DETECTION' }],
+        ...(function(){
+          const src = $('srcLang').value;
+          return src === 'auto' ? {} : { imageContext: { languageHints: [src] } };
+        })()
+      }]
+    })
+  });
+  const data = await res.json();
+  if (data.error || data.responses?.[0]?.error) {
+    throw new Error((data.error || data.responses[0].error).message);
+  }
+  return data.responses[0].fullTextAnnotation || null;
+}
+
+// Extract blocks (paragraph or block granularity) with bounding boxes
+function extractBlocks(fta, groupParagraphs) {
+  const out = [];
+  if (!fta || !fta.pages) return out;
+  for (const page of fta.pages) {
+    for (const block of page.blocks || []) {
+      const units = groupParagraphs ? [block] : (block.paragraphs || []);
+      for (const unit of units) {
+        const paras = groupParagraphs ? (unit.paragraphs || []) : [unit];
+        let text = '';
+        for (const p of paras) {
+          for (const w of p.words || []) {
+            text += (w.symbols || []).map(s => s.text).join('');
+            const br = w.symbols?.at(-1)?.property?.detectedBreak?.type;
+            text += (br === 'SPACE' || br === 'SURE_SPACE') ? ' '
+                 : (br === 'LINE_BREAK' || br === 'EOL_SURE_SPACE') ? ' ' : '';
+          }
+        }
+        text = text.trim();
+        if (!text) continue;
+        // skip pure numbers / single chars (HUD noise)
+        if (/^[\d\s\/:.%+-]+$/.test(text) || text.length < 2) continue;
+        const v = (groupParagraphs ? unit.boundingBox : unit.boundingBox).vertices;
+        const xs = v.map(p => p.x || 0), ys = v.map(p => p.y || 0);
+        out.push({
+          text,
+          x: Math.min(...xs), y: Math.min(...ys),
+          w: Math.max(...xs) - Math.min(...xs),
+          h: Math.max(...ys) - Math.min(...ys)
+        });
+      }
+    }
+  }
+  return out;
+}
+
+// ---- Translation API (batch) ----
+async function translateTexts(key, texts) {
+  const res = await fetch('https://translation.googleapis.com/language/translate/v2?key=' + encodeURIComponent(key), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify((() => {
+      const src = $('srcLang').value;
+      const body = { q: texts, target: $('tgtLang').value, format: 'text' };
+      if (src !== 'auto') body.source = src.split('-')[0] === 'zh' ? src : src; // zh-TW etc. passed as-is
+      return body;
+    })())
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.data.translations.map(t => t.translatedText);
+}
+
+// ---- overlay rendering ----
+function renderOverlay(dataUrl, imgW, imgH, blocks, liveMode) {
+  const layer = $('snapLayer');
+  const img = $('snapImg');
+  const boxes = $('overlayBoxes');
+  boxes.innerHTML = '';
+
+  if (liveMode) {
+    img.style.display = 'none';           // keep video visible underneath
+  } else {
+    img.style.display = 'block';
+    img.src = dataUrl;
+  }
+  layer.style.display = 'block';
+
+  // compute letterbox mapping (object-fit: contain)
+  const wrap = layer.getBoundingClientRect();
+  const scale = Math.min(wrap.width / imgW, wrap.height / imgH);
+  const offX = (wrap.width - imgW * scale) / 2;
+  const offY = (wrap.height - imgH * scale) / 2;
+
+  for (const b of blocks) {
+    const d = document.createElement('div');
+    d.className = 'obox';
+    d.textContent = b.ja;
+    const bw = Math.max(b.w * scale, 24);
+    const bh = Math.max(b.h * scale, 14);
+    d.style.left = (offX + b.x * scale) + 'px';
+    d.style.top = (offY + b.y * scale) + 'px';
+    d.style.width = bw + 'px';
+    d.style.minHeight = bh + 'px';
+    // font size: fit roughly to box height / line count estimate
+    const est = Math.max(9, Math.min(22, bh * 0.55, bw / Math.max(4, b.ja.length) * 1.9));
+    d.style.fontSize = est + 'px';
+    d.style.animationDelay = (0.06 + (b.y / imgH) * 0.45).toFixed(2) + 's';
+    boxes.appendChild(d);
+  }
+}
+
+function backToLive() {
+  frozen = false;
+  $('snapLayer').style.display = 'none';
+  $('overlayBoxes').innerHTML = '';
+  $('btnLive').style.display = 'none';
+  setBadge('live');
+}
+$('btnLive').onclick = backToLive;
+
+// ---- main ----
+async function translateNow(liveMode = false) {
+  if (busy) return;
+  const key = ($('apiKey').value || '').trim();
+  if (!key) { setStatus('APIキーを入力してください', 'error'); return; }
+  if (!stream || video.videoWidth === 0) { setStatus('先に画面を選択してください', 'error'); return; }
+
+  busy = true;
+  $('scanline').classList.add('active');
+  setStatus('文字を認識中…', 'busy');
+  const { dataUrl, w, h } = captureFrame();
+  const base64 = dataUrl.split(',')[1];
+
+  try {
+    const fta = await ocr(key, base64);
+    const blocks = extractBlocks(fta, $('groupPara').checked);
+    if (blocks.length === 0) {
+      setStatus('テキストが見つかりませんでした');
+      if (liveMode) $('overlayBoxes').innerHTML = '';
+      busy = false; return;
+    }
+    setStatus('翻訳中… (' + blocks.length + '件)', 'busy');
+    const ja = await translateTexts(key, blocks.map(b => b.text));
+    blocks.forEach((b, i) => b.ja = ja[i]);
+
+    renderOverlay(dataUrl, w, h, blocks, liveMode);
+    $('btnLive').style.display = 'inline-block';
+    $('btnLive').disabled = false;
+    if (!liveMode) {
+      frozen = true;
+      $('btnLive').textContent = 'ライブに戻る';
+      setBadge('frozen');
+    } else {
+      $('btnLive').textContent = 'オーバーレイを消す';
+    }
+    addEntry(blocks);
+    setStatus('翻訳完了 (' + blocks.length + '件)');
+  } catch (e) {
+    setStatus('エラー: ' + e.message, 'error');
+  } finally {
+    stopScan();
+    busy = false;
+  }
+}
+
+function stopScan() {
+  const el = $('scanline');
+  if (!el.classList.contains('active')) return;
+  el.addEventListener('animationiteration', () => el.classList.remove('active'), { once: true });
+}
+
+$('btnTranslate').onclick = () => translateNow(!$('freezeMode').checked);
+
+// ---- feed ----
+function addEntry(blocks) {
+  $('emptyFeed').style.display = 'none';
+  const div = document.createElement('div');
+  div.className = 'entry';
+  const t = new Date().toLocaleTimeString('ja-JP');
+  div.innerHTML = '<div class="time">' + t + '</div>' +
+    blocks.map(b =>
+      '<div class="ja">' + escapeHtml(b.ja) + '</div>' +
+      '<div class="en">' + escapeHtml(b.text) + '</div>'
+    ).join('<div style="height:8px"></div>');
+  $('feed').prepend(div);
+}
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+$('showEn').onchange = e => $('feed').classList.toggle('show-en', e.target.checked);
+$('btnClear').onclick = () => {
+  $('feed').querySelectorAll('.entry').forEach(el => el.remove());
+  $('emptyFeed').style.display = 'block';
+};
+
+// ---- auto mode: overlay on live video ----
+$('autoMode').onchange = e => { e.target.checked ? startAuto() : stopAuto(); };
+$('autoInterval').onchange = () => { if ($('autoMode').checked) { stopAuto(); startAuto(); } };
+function startAuto() {
+  backToLive();
+  translateNow(true);
+  autoTimer = setInterval(() => translateNow(true), parseInt($('autoInterval').value));
+}
+function stopAuto() {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+  $('overlayBoxes').innerHTML = '';
+  if (!frozen) { $('snapLayer').style.display = 'none'; $('btnLive').style.display = 'none'; }
+}
+
+// keep overlay aligned on window resize
+window.addEventListener('resize', () => {
+  // simplest: clear overlay on resize (positions become stale)
+  if ($('snapLayer').style.display === 'block' && !frozen) $('overlayBoxes').innerHTML = '';
+});
+</script>
+</body>
+</html>
